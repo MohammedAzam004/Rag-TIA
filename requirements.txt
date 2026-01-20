@@ -13,4 +13,5 @@ numpy<2
 diffusers
 transformers
 scipy
+elevenlabs
 ftfy
