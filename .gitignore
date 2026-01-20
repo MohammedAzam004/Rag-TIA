@@ -1,0 +1,5 @@
+env
+__pycache__/
+generated_image.png
+generated_audio.mp3
+.vscode/
