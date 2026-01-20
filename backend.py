@@ -36,7 +36,9 @@ def setup_rag_components(pdf_bytes: bytes):
         print("✅ RAG components ready.")
         return vector_store.as_retriever(search_kwargs={"k": 3})
     except Exception as exc:
+        import traceback
         print(f"❌ Error during RAG setup: {exc}")
+        traceback.print_exc()
         return None
     finally:
         if os.path.exists(temp_file_path):
