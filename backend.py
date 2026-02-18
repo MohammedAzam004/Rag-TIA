@@ -9,7 +9,7 @@ from typing import Callable, Optional, Union
 import torch
 from diffusers import StableDiffusionPipeline
 from elevenlabs.client import ElevenLabs
-from langchain_classic.chains.retrieval_qa.base import RetrievalQA
+# No longer using deprecated RetrievalQA - using manual RAG approach instead
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.embeddings import HuggingFaceEmbeddings
@@ -176,6 +176,15 @@ def _reduce_repetitions(text: str) -> str:
 
 
 def generate_text_response(query: str, retriever=None) -> str:
+    """Generate text response with optional RAG context.
+    
+    Args:
+        query: User's question or prompt
+        retriever: Optional FAISS retriever for RAG context
+        
+    Returns:
+        Generated text response
+    """
     llm_or_error = get_llm_pipeline()
     if not isinstance(llm_or_error, HuggingFacePipeline):
         return llm_or_error()
@@ -189,15 +198,44 @@ def generate_text_response(query: str, retriever=None) -> str:
         return "Hello! How can I assist you today?"
 
     try:
+        # Manual RAG implementation - more reliable than deprecated RetrievalQA
         if retriever:
-            qa_chain = RetrievalQA.from_chain_type(
-                llm=llm_or_error,
-                chain_type="stuff",
-                retriever=retriever,
-                return_source_documents=False,
-            )
-            result = qa_chain.run(final_query)
+            # Retrieve relevant documents
+            docs = retriever.get_relevant_documents(final_query)
+            
+            if docs:
+                # Combine document content as context
+                context = "\n\n".join([doc.page_content for doc in docs[:3]])
+                
+                # Create enhanced prompt with context
+                enhanced_prompt = f"""Context information:
+{context}
+
+Question: {final_query}
+
+Answer based on the context above:"""
+                
+                # Generate with context
+                outputs = llm_or_error.pipeline(
+                    enhanced_prompt,
+                    do_sample=True,
+                    temperature=0.7,
+                    top_p=0.9,
+                    repetition_penalty=1.15,
+                    max_new_tokens=128,
+                )
+            else:
+                # No relevant docs found, use original query
+                outputs = llm_or_error.pipeline(
+                    final_query,
+                    do_sample=True,
+                    temperature=0.7,
+                    top_p=0.9,
+                    repetition_penalty=1.15,
+                    max_new_tokens=128,
+                )
         else:
+            # No retriever - standard generation
             outputs = llm_or_error.pipeline(
                 final_query,
                 do_sample=True,
@@ -206,10 +244,12 @@ def generate_text_response(query: str, retriever=None) -> str:
                 repetition_penalty=1.15,
                 max_new_tokens=128,
             )
-            if isinstance(outputs, list) and outputs:
-                result = outputs[0].get("generated_text") or outputs[0].get("text", "")
-            else:
-                result = str(outputs)
+        
+        # Extract result
+        if isinstance(outputs, list) and outputs:
+            result = outputs[0].get("generated_text") or outputs[0].get("text", "")
+        else:
+            result = str(outputs)
 
         if isinstance(result, str):
             result = _clean_output(result, final_query)
