@@ -1,7 +1,7 @@
 import os
 import time
 import streamlit as st
-from backend import setup_rag_components, generate_text_response, generate_image, generate_audio
+from backend import setup_rag_components, generate_text_response, generate_image, generate_audio, test_elevenlabs_api_key
 
 st.set_page_config(page_title="Multi Tasker AI", layout="wide", page_icon="🚀")
 
@@ -137,12 +137,34 @@ with st.sidebar:
 
     elif st.session_state.current_mode == "Audio":
         st.header("ElevenLabs API Key")
-        st.session_state.elevenlabs_key = st.text_input(
-            "API Key",
-            type="password",
-            placeholder="Enter ElevenLabs key",
-            value=st.session_state.elevenlabs_key,
-        )
+        st.markdown("Get your API key at: [ElevenLabs Settings](https://elevenlabs.io/app/settings/api-keys)")
+        
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.session_state.elevenlabs_key = st.text_input(
+                "API Key",
+                type="password",
+                placeholder="Enter ElevenLabs key (e.g., sk_...)",
+                value=st.session_state.elevenlabs_key,
+            )
+        with col2:
+            st.write("")  # Spacing
+            st.write("")  # Spacing
+            if st.button("🔍 Test Key", help="Verify your API key is valid"):
+                if st.session_state.elevenlabs_key:
+                    with st.spinner("Testing API key..."):
+                        is_valid, message = test_elevenlabs_api_key(st.session_state.elevenlabs_key)
+                    if is_valid:
+                        st.success(message)
+                    else:
+                        st.error(message)
+                else:
+                    st.warning("Please enter an API key first")
+        
+        if st.session_state.elevenlabs_key:
+            st.info(f"API Key: {'*' * (len(st.session_state.elevenlabs_key) - 4)}{st.session_state.elevenlabs_key[-4:]}")
+        else:
+            st.warning("⚠️ No API key entered. Please add your ElevenLabs API key above.")
 
 st.header(f"{selected_mode_display} Interface")
 
@@ -189,16 +211,25 @@ elif st.session_state.current_mode == "Image":
             st.warning("Please enter an image prompt before submitting.")
         else:
             st.session_state.image_messages.append({"role": "user", "content": prompt})
-            with st.spinner("Generating image..."):
-                image_path = generate_image(prompt, st.session_state.selected_image_model)
-            if os.path.exists(image_path):
-                st.session_state.image_messages.append(
-                    {"role": "assistant", "content": image_path, "kind": "image"}
-                )
-            else:
-                st.session_state.image_messages.append({"role": "assistant", "content": image_path})
-            st.session_state.image_prompt_buffer = ""
-            st.rerun()
+            try:
+                with st.spinner("Generating image... This may take 30-60 seconds."):
+                    image_path = generate_image(prompt, st.session_state.selected_image_model)
+                
+                if image_path and os.path.exists(image_path):
+                    st.session_state.image_messages.append(
+                        {"role": "assistant", "content": image_path, "kind": "image"}
+                    )
+                    st.success("Image generated successfully!")
+                else:
+                    st.session_state.image_messages.append({"role": "assistant", "content": image_path or "Error: No image path returned."})
+                    st.error("Image generation failed. Please try again.")
+            except Exception as e:
+                error_msg = f"Error: Generation failed - {str(e)}"
+                st.session_state.image_messages.append({"role": "assistant", "content": error_msg})
+                st.error(error_msg)
+            finally:
+                st.session_state.image_prompt_buffer = ""
+                st.rerun()
 
 elif st.session_state.current_mode == "Audio":
     st.caption("Using Model: ElevenLabs")
@@ -222,16 +253,34 @@ elif st.session_state.current_mode == "Audio":
         if not prompt:
             st.warning("Please enter text before submitting.")
         elif not st.session_state.elevenlabs_key:
-            st.error("Please set your ElevenLabs API key in the sidebar.")
+            st.error("⚠️ Please set your ElevenLabs API key in the sidebar first.")
+        elif len(st.session_state.elevenlabs_key) < 10:
+            st.error("⚠️ API key appears invalid (too short). Please check your key.")
         else:
             st.session_state.audio_messages.append({"role": "user", "content": prompt})
-            with st.spinner("Generating audio..."):
-                audio_path = generate_audio(prompt, st.session_state.elevenlabs_key)
-            if os.path.exists(audio_path):
-                st.session_state.audio_messages.append(
-                    {"role": "assistant", "content": audio_path, "kind": "audio"}
-                )
-            else:
+            try:
+                with st.spinner("🎙️ Generating audio... This may take 10-30 seconds."):
+                    audio_path = generate_audio(prompt, st.session_state.elevenlabs_key)
+                
+                if audio_path and os.path.exists(audio_path):
+                    st.session_state.audio_messages.append(
+                        {"role": "assistant", "content": audio_path, "kind": "audio"}
+                    )
+                    st.success("✅ Audio generated successfully!")
+                else:
+                    # Error message from backend
+                    st.session_state.audio_messages.append({"role": "assistant", "content": audio_path or "Error: No audio generated."})
+                    if "unauthorized" in audio_path.lower() or "401" in audio_path:
+                        st.error("❌ API Key Error: Your key was rejected. Try:\n1. Generate a new key at https://elevenlabs.io/app/settings/api-keys\n2. Test it using the 🔍 Test Key button\n3. Make sure you have credits in your account")
+                    else:
+                        st.error(f"❌ {audio_path}")
+            except Exception as e:
+                error_msg = f"Error: Audio generation failed - {str(e)}"
+                st.session_state.audio_messages.append({"role": "assistant", "content": error_msg})
+                st.error(error_msg)
+            finally:
+                st.session_state.audio_prompt_buffer = ""
+                st.rerun()
                 st.session_state.audio_messages.append({"role": "assistant", "content": audio_path})
             st.session_state.audio_prompt_buffer = ""
             st.rerun()

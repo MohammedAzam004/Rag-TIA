@@ -2,6 +2,7 @@ streamlit
 langchain
 langchain-community
 langchain-huggingface
+langchain-text-splitters
 chromadb
 pymongo
 python-dotenv
@@ -15,3 +16,5 @@ transformers
 scipy
 elevenlabs
 ftfy
+pypdf
+faiss-cpu
