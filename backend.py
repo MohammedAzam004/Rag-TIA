@@ -13,9 +13,10 @@ from elevenlabs.client import ElevenLabs
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_community.llms.huggingface_pipeline import HuggingFacePipeline
+from langchain_huggingface import HuggingFacePipeline  # Updated import
 from langchain_community.vectorstores import FAISS
 from transformers import pipeline as hf_pipeline
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -110,21 +111,41 @@ def _build_error_function(message: str) -> Callable[[], str]:
 
 
 def get_llm_pipeline(max_tokens: int = 128):
-    """Get or initialize the LLM pipeline."""
+    """Get or initialize the LLM pipeline for FLAN-T5.
+    
+    Uses AutoModelForSeq2SeqLM directly for compatibility with latest transformers.
+    """
     global llm_pipeline_cache
     if llm_pipeline_cache is None:
         model_name = "google/flan-t5-base"
         device = 0 if torch.cuda.is_available() else -1
         print(f"🔄 Loading language model: {model_name} on {'GPU' if device == 0 else 'CPU'}")
         try:
+            # Load model and tokenizer explicitly for better control
+            print("📥 Loading tokenizer...")
+            tokenizer = AutoTokenizer.from_pretrained(model_name)
+            
+            print("📥 Loading model...")
+            model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+            
+            # Move model to appropriate device
+            if torch.cuda.is_available():
+                model = model.to('cuda')
+                print("✅ Model moved to GPU")
+            else:
+                print("✅ Model loaded on CPU")
+            
+            # Create pipeline with explicit task and components
             generator = hf_pipeline(
-                "text2text-generation",
-                model=model_name,
+                task="text2text-generation",
+                model=model,
+                tokenizer=tokenizer,
                 max_new_tokens=max_tokens,
                 device=device,
             )
+            
             llm_pipeline_cache = HuggingFacePipeline(pipeline=generator)
-            print("✅ Language model loaded successfully.")
+            print("✅ Language model pipeline ready.")
         except Exception as exc:
             print(f"❌ Failed to load LLM: {exc}")
             import traceback
